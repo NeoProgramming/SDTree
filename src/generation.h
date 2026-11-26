@@ -9,7 +9,8 @@ struct GenerationParams {
 
 // generationtask.h
 struct GenerationTask {
-    QString prompt;
+    QString posPrompt;
+	QString negPrompt;
     GenerationParams params;
     QString taskId;             // для идентификации в очереди
 };

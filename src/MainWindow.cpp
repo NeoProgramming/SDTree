@@ -91,8 +91,8 @@ MainWindow::MainWindow(QWidget *parent)
 
 
 	// ---- сигналы GUI ----
-	connect(m_tree, &QTreeWidget::itemClicked,
-		this, &MainWindow::onTreeItemClicked);
+	connect(m_tree, &QTreeWidget::itemDoubleClicked,
+		this, &MainWindow::onTreeItemDoubleClicked);
 	connect(m_generateBtn, &QPushButton::clicked,
 		this, &MainWindow::onGenerateClicked);
 }
@@ -105,13 +105,22 @@ MainWindow::~MainWindow()
 
 QTreeWidgetItem* MainWindow::addTreeItem(QTreeWidgetItem* root, const QString &name, const QString &value)
 {
-	auto *fragment = new QTreeWidgetItem(root, { name });
+	QTreeWidgetItem *fragment;
+	if(root)
+		fragment = new QTreeWidgetItem(root, { name });
+	else
+		fragment = new QTreeWidgetItem(m_tree, { name });
 	fragment->setFlags(fragment->flags() | Qt::ItemIsUserCheckable);
 	fragment->setCheckState(0, Qt::Checked);
-
 	fragment->setData(0, Qt::UserRole, name);
+
 	// значение самого фрагмента храним в отдельной роли, чтобы не путать с подписью
 	fragment->setData(0, Qt::UserRole + 1, value);
+
+	if (!root) {
+		fragment->setExpanded(true);
+		m_tree->addTopLevelItem(fragment);
+	}
 
 	return fragment;
 }
@@ -120,21 +129,13 @@ void MainWindow::buildTree()
 {
 	m_tree->clear();
 
-	auto *root = new QTreeWidgetItem(m_tree, { "Prompt" });
-	root->setFlags(root->flags() | Qt::ItemIsUserCheckable);
-	root->setCheckState(0, Qt::Checked);
-	root->setData(0, Qt::UserRole, "prompt_root");
-
-	auto *settings = addTreeItem(root, "Settings" , "cfg");
-	addTreeItem(settings, "repeatCount", "10");
-	addTreeItem(settings, "baseSeed", "-1");
-	addTreeItem(settings, "seedDelta", "1");
-
-	auto *fragment = addTreeItem(root, "prompt_text", "a beautiful landscape, mountains, lake, sunset");
-		
-
-	root->setExpanded(true);
-	m_tree->addTopLevelItem(root);
+	m_itemPos = addTreeItem(nullptr, "Positive Prompt", "a beautiful landscape, mountains, lake, sunset");
+	m_itemNeg = addTreeItem(nullptr, "Negative Prompt", "blurry, low quality, text, watermark");
+	m_itemCfg = addTreeItem(nullptr, "Configuation", "cfg");
+	
+	addTreeItem(m_itemCfg, "repeatCount", "10");
+	addTreeItem(m_itemCfg, "baseSeed", "-1");
+	addTreeItem(m_itemCfg, "seedDelta", "1");	
 }
 
 GenerationParams MainWindow::composeParams() const
@@ -162,7 +163,7 @@ GenerationParams MainWindow::composeParams() const
 	return params;
 }
 
-QString MainWindow::composePrompt() const
+QString MainWindow::composePrompt(QTreeWidgetItem *root) const
 {
 	QStringList parts;
 	// Обход дерева: собираем только включённые листовые узлы-фрагменты
@@ -171,7 +172,7 @@ QString MainWindow::composePrompt() const
 			return;
 		const QVariant name = item->data(0, Qt::UserRole);
 		const QVariant text = item->data(0, Qt::UserRole + 1);
-		if (name == "prompt_text" && text.isValid() && !text.toString().isEmpty()) {
+		if (text.isValid() && !text.toString().isEmpty()) {
 			parts << text.toString();
 		}
 		// дочерние элементы
@@ -180,17 +181,18 @@ QString MainWindow::composePrompt() const
 	};
 
 	// неверно, нужно просто начинать от фиксированного элемента Prompts
-	for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
-		walk(m_tree->topLevelItem(i));
+//	for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+//		walk(m_tree->topLevelItem(i));
+	walk(root);
 	return parts.join(", ");
 }
 
-void MainWindow::onTreeItemClicked(QTreeWidgetItem *item, int)
+void MainWindow::onTreeItemDoubleClicked(QTreeWidgetItem *item, int)
 {
 	if (!item) return;
 
 	// Показываем актуальный собранный промпт при любом клике
-	m_promptView->setPlainText(composePrompt());
+	m_promptView->setPlainText(composePrompt(item));
 
 	// Редактирование только для фрагментов с текстом
 	const QVariant text = item->data(0, Qt::UserRole + 1);
@@ -203,31 +205,32 @@ void MainWindow::onTreeItemClicked(QTreeWidgetItem *item, int)
 		"Edit fragment",
 		item->text(0),
 		text.toString(),
-		&ok);
+		&ok,
+		Qt::WindowFlags(),
+		Qt::ImhMultiLine);
 
 	if (ok) {
 		item->setData(0, Qt::UserRole + 1, newText);
-		m_promptView->setPlainText(composePrompt());
+		m_promptView->setPlainText(composePrompt(item));
 	}
 }
 
 void MainWindow::onGenerateClicked()
 {
-	const QString prompt = composePrompt();
-	if (prompt.trimmed().isEmpty()) {
+	GenerationTask task;
+	task.posPrompt = composePrompt(m_itemPos);
+	if (task.posPrompt.trimmed().isEmpty()) {
 		QMessageBox::warning(this, "Empty prompt",
 			"Include at least one segment containing text.");
 		return;
 	}
-
-	GenerationTask task;
-	task.taskId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-	task.prompt = composePrompt();
+	task.negPrompt = composePrompt(m_itemNeg);
 	task.params = composeParams();
+	task.taskId = QUuid::createUuid().toString(QUuid::WithoutBraces);	
 	
 	m_queueView->addItem(QString("Time [%1] %2  (repeat=%3, seed=%4, delta=%5)")
 		.arg(task.taskId.left(8))
-		.arg(task.prompt.left(60))
+		.arg(task.posPrompt.left(60))
 		.arg(task.params.repeatCount)
 		.arg(task.params.baseSeed)
 		.arg(task.params.seedDelta));

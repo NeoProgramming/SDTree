@@ -22,14 +22,14 @@ signals:
 	// этот сигнал посылаем сами себе из обработчика кнопки
 	void enqueueTask(const GenerationTask &task);
 private slots:
-	void onTreeItemClicked(QTreeWidgetItem *item, int column);
+	void onTreeItemDoubleClicked(QTreeWidgetItem *item, int column);
 	void onGenerateClicked();
 	void onQueueEmpty();
 
 private:
 	void buildTree();
 	QTreeWidgetItem* addTreeItem(QTreeWidgetItem* root, const QString &name, const QString &value);
-	QString composePrompt() const;
+	QString composePrompt(QTreeWidgetItem *root) const;
 	GenerationParams composeParams() const;
 
 	QTreeWidget *m_tree;
@@ -39,4 +39,8 @@ private:
 
 	QThread m_workerThread;
 	GenerateWorker *m_worker;
+
+	QTreeWidgetItem *m_itemPos;
+	QTreeWidgetItem *m_itemNeg;
+	QTreeWidgetItem *m_itemCfg;
 };

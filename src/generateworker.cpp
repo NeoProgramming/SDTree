@@ -7,10 +7,10 @@
 
 // ---- фиксированные настройки для MVP ----
 static const QString kServerUrl = "http://127.0.0.1:1234/sdapi/v1/txt2img";
-static const int kWidth = 256;
-static const int kHeight = 256;
-static const int kSteps = 4;
-static const double kCfgScale = 7.0;
+static const int kWidth = 1024;// 256;
+static const int kHeight = 1024;// 256;
+static const int kSteps = 28;// 4;
+static const double kCfgScale = 3.5;// 7.0;
 static const int kTimeout = 600000; // 10 минут
 // ------------------------------------------
 
@@ -35,10 +35,10 @@ QString GenerateWorker::makeOutputPath(int index) const
     // Простая защита от затирания: имя с временной меткой и счётчиком
 	// outputBase + "." + QString::number(index + 1) + ".png"
 
-	const QString base = makeBaseName(); QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+	const QString base = makeBaseName(); 
 	QString path;
     int counter = 1;
-	if (index <= 0) {
+	if (index < 0) {
 		path = base + ".png";
 		while (QFile::exists(path)) {
 			path = QString("%1_%2.png").arg(base).arg(counter++);
@@ -75,7 +75,7 @@ void GenerateWorker::processNext()
 	}
 
 	m_running.task = m_queue.dequeue();
-	m_running.currentIndex = m_running.task.params.repeatCount ? 1 : 0;
+	m_running.currentIndex = m_running.task.params.repeatCount ? 0 : -1;
 	m_running.outputBase = makeBaseName();  // напр. "output/20260101_120000_123"
 	m_hasRunning = true;
 
@@ -97,8 +97,8 @@ void GenerateWorker::startNextRequest()
 	m_running.currentSeed = computeSeedForIndex(m_running.currentIndex);
 
 	QJsonObject body;
-	body["prompt"] = m_running.task.prompt;
-	body["negative_prompt"] = "";
+	body["prompt"] = m_running.task.posPrompt;
+	body["negative_prompt"] = m_running.task.negPrompt;
 	body["width"] = kWidth;
 	body["height"] = kHeight;
 	body["steps"] = kSteps;
@@ -160,7 +160,7 @@ void GenerateWorker::handleReply(QNetworkReply *reply)
 	}
 
 	// 
-	const QString path = makeOutputPath(m_running.currentIndex);
+	const QString path = makeOutputPath(m_running.task.params.repeatCount > 1 ? m_running.currentIndex : -1);
 	QFile f(path);
 	if (!f.open(QIODevice::WriteOnly) ||
 		f.write(QByteArray::fromBase64(images.at(0).toString().toUtf8())) < 0) {
