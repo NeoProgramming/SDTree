@@ -1,1 +1,0 @@
-sd-cli -m models/segmind_tiny-sd-q4_K.gguf --taesd models/taesd.safetensors --lora-model-dir loras -p "a cute cat <lora:lcm_tiny:1.0>" -W 256 -H 256 --steps 4 --cfg-scale 1.5 --sampling-method lcm -o test_out.png

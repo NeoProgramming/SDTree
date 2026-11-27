@@ -5,28 +5,27 @@
 #include <QBuffer>
 #include <QTimer>
 
-// ---- фиксированные настройки для MVP ----
-static const QString kServerUrl = "http://127.0.0.1:1234/sdapi/v1/txt2img";
-static const int kWidth = 1024;// 256;
-static const int kHeight = 1024;// 256;
-static const int kSteps = 28;// 4;
-static const double kCfgScale = 3.5;// 7.0;
-static const int kTimeout = 600000; // 10 минут
-// ------------------------------------------
 
 GenerateWorker::GenerateWorker(QObject *parent)
     : QObject(parent)
     , m_nam(new QNetworkAccessManager(this))
 {
-    m_outputDir = QDir::current().filePath("output");
-    QDir().mkpath(m_outputDir);
+	cfg.loadSettings();
+	if(cfg.outPath.isEmpty())
+		cfg.outPath = QDir::current().filePath("output");
+    QDir().mkpath(cfg.outPath);
+}
+
+GenerateWorker::~GenerateWorker()
+{
+	cfg.saveSettings();
 }
 
 QString GenerateWorker::makeBaseName() const
 {
 	// напр. "output/20260101_120000_123"
 	const QString base = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-	QString path = QDir(m_outputDir).filePath(base);
+	QString path = QDir(cfg.outPath).filePath(base);
 	return path;
 }
 
@@ -99,14 +98,14 @@ void GenerateWorker::startNextRequest()
 	QJsonObject body;
 	body["prompt"] = m_running.task.posPrompt;
 	body["negative_prompt"] = m_running.task.negPrompt;
-	body["width"] = kWidth;
-	body["height"] = kHeight;
-	body["steps"] = kSteps;
-	body["cfg_scale"] = kCfgScale;
+	body["width"] = cfg.width;
+	body["height"] = cfg.height;
+	body["steps"] = cfg.steps;
+	body["cfg_scale"] = cfg.cfgScale;
 	body["seed"] = m_running.currentSeed;
 	body["batch_size"] = 1;
 
-	QNetworkRequest req{ QUrl("http://127.0.0.1:1234/sdapi/v1/txt2img") };
+	QNetworkRequest req{ QUrl(cfg.serverUrl) };
 	req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
 	// отправляет на сервер запрос
@@ -199,6 +198,8 @@ void GenerateWorker::abortNow()
 /*
 void GenerateWorker::requestGeneration(const QString &prompt)
 {
+	static const int kTimeout = 600000; // 10 минут
+
     QJsonObject body;
     body["prompt"] = prompt;
     body["negative_prompt"] = "";

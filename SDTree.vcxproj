@@ -84,6 +84,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\generateworker.cpp" />
+    <ClCompile Include="src\Settings.cpp" />
     <QtRcc Include="MainWindow.qrc" />
     <QtMoc Include="src/MainWindow.h" />
     <ClCompile Include="src/MainWindow.cpp" />
@@ -94,6 +95,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\generation.h" />
+    <ClInclude Include="src\Settings.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

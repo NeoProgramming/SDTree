@@ -1,0 +1,1 @@
+c:\MySoft\sdcpp-win7-cpu\sd-cli.exe -m c:/MySoft/sdcpp-win7-cpu/models/segmind_tiny-sd-q4_K.gguf --taesd c:/MySoft/sdcpp-win7-cpu/models/taesd.safetensors --lora-model-dir c:/MySoft/sdcpp-win7-cpu/loras -p "a cute cat <lora:lcm_tiny:1.0>" -W 512 -H 512 --steps 20 --cfg-scale 7 --sampling-method lcm -o test_out512.png

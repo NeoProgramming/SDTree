@@ -50,14 +50,14 @@ MainWindow::MainWindow(QWidget *parent)
 	setWindowTitle("SD GUI - MVP");
 	resize(1100, 700);
 
-	// ---- дерево ----
-	buildTree();
+	
 
 	// ---- воркер в отдельном потоке ----
 	m_worker = new GenerateWorker; // без parent, переедет в поток
 	m_worker->moveToThread(&m_workerThread);
 
-	
+	// ---- дерево - после воркера т.к. там читаются настройки
+	buildTree();
 	
 	connect(&m_workerThread, &QThread::finished,
 		m_worker, &QObject::deleteLater);
@@ -133,9 +133,14 @@ void MainWindow::buildTree()
 	m_itemNeg = addTreeItem(nullptr, "Negative Prompt", "blurry, low quality, text, watermark");
 	m_itemCfg = addTreeItem(nullptr, "Configuation", "cfg");
 	
-	addTreeItem(m_itemCfg, "repeatCount", "10");
-	addTreeItem(m_itemCfg, "baseSeed", "-1");
-	addTreeItem(m_itemCfg, "seedDelta", "1");	
+	addTreeItem(m_itemCfg, "repeatCount", QString::number(m_worker->cfg.repeatCount));
+	addTreeItem(m_itemCfg, "baseSeed", QString::number(m_worker->cfg.baseSeed));
+	addTreeItem(m_itemCfg, "seedDelta", QString::number(m_worker->cfg.seedDelta));
+
+	addTreeItem(m_itemCfg, "width", QString::number(m_worker->cfg.width));
+	addTreeItem(m_itemCfg, "height", QString::number(m_worker->cfg.height));
+	addTreeItem(m_itemCfg, "steps", QString::number(m_worker->cfg.steps));
+	addTreeItem(m_itemCfg, "cfgScale", QString::number(m_worker->cfg.cfgScale));
 }
 
 GenerationParams MainWindow::composeParams() const

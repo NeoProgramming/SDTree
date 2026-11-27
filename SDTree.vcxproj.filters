@@ -40,6 +40,9 @@
     <ClCompile Include="src\generateworker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\Settings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="src\generateworker.h">
@@ -48,6 +51,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\generation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Settings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
