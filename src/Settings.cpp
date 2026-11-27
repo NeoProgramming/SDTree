@@ -20,7 +20,7 @@ void Settings::loadSettings()
 	SETTINGS_LIST
 #undef X
 
-	if (settings.allKeys().size() != 6)
+	if (!settings.contains("serverUrl"))
 		saveSettings();
 }
 

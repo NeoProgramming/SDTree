@@ -9,7 +9,6 @@
 	X(height,		int,	 1024)\
 	X(steps,		int,	 20)\
 	X(cfgScale,		double,  3.5)\
-	X(timeout,		int,	 600000)\
 	X(outPath,		QString, "./output")\
 	X(serverUrl,    QString, "http://127.0.0.1:1234/sdapi/v1/txt2img")
 

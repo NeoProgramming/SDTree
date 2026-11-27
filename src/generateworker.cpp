@@ -6,26 +6,26 @@
 #include <QTimer>
 
 
-GenerateWorker::GenerateWorker(QObject *parent)
+GenerateWorker::GenerateWorker(const WorkerConfig &cfg, QObject *parent)
     : QObject(parent)
+	, m_cfg(cfg)
     , m_nam(new QNetworkAccessManager(this))
 {
-	cfg.loadSettings();
-	if(cfg.outPath.isEmpty())
-		cfg.outPath = QDir::current().filePath("output");
-    QDir().mkpath(cfg.outPath);
+	if(m_cfg.outPath.isEmpty())
+		m_cfg.outPath = QDir::current().filePath("output");
+    QDir().mkpath(m_cfg.outPath);
 }
 
 GenerateWorker::~GenerateWorker()
 {
-	cfg.saveSettings();
+	
 }
 
 QString GenerateWorker::makeBaseName() const
 {
 	// напр. "output/20260101_120000_123"
 	const QString base = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-	QString path = QDir(cfg.outPath).filePath(base);
+	QString path = QDir(m_cfg.outPath).filePath(base);
 	return path;
 }
 
@@ -98,14 +98,14 @@ void GenerateWorker::startNextRequest()
 	QJsonObject body;
 	body["prompt"] = m_running.task.posPrompt;
 	body["negative_prompt"] = m_running.task.negPrompt;
-	body["width"] = cfg.width;
-	body["height"] = cfg.height;
-	body["steps"] = cfg.steps;
-	body["cfg_scale"] = cfg.cfgScale;
+	body["width"] = m_running.task.params.width;
+	body["height"] = m_running.task.params.height;
+	body["steps"] = m_running.task.params.steps;
+	body["cfg_scale"] = m_running.task.params.cfgScale;
 	body["seed"] = m_running.currentSeed;
 	body["batch_size"] = 1;
 
-	QNetworkRequest req{ QUrl(cfg.serverUrl) };
+	QNetworkRequest req{ QUrl(m_cfg.serverUrl) };
 	req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
 	// отправляет на сервер запрос

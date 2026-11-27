@@ -9,13 +9,12 @@
 #include <QDateTime>
 #include <QQueue>
 #include "generation.h"
-#include "Settings.h"
 
 class GenerateWorker : public QObject
 {
     Q_OBJECT
 public:
-    explicit GenerateWorker(QObject *parent = nullptr);
+    explicit GenerateWorker(const WorkerConfig &cfg, QObject *parent = nullptr);
 	~GenerateWorker();
 public slots:
  //	void requestGeneration(const QString &prompt);
@@ -32,8 +31,7 @@ signals:
 	void queueEmpty();
 private slots:
 	void processNext();
-public:
-	Settings cfg;
+
 private:
 	struct RunningState {
 		GenerationTask task;
@@ -42,6 +40,7 @@ private:
 		QString outputBase;      // באחמגמו טלÿ פאיכא בוח .N.png
 	};
 
+	WorkerConfig m_cfg;
 	QQueue<GenerationTask> m_queue;
 	RunningState m_running;
 	bool m_hasRunning = false;

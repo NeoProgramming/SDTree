@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QThread>
 #include "generation.h"
+#include "Settings.h"
 
 class QTreeWidget;
 class QPlainTextEdit;
@@ -10,6 +11,10 @@ class QListWidget;
 class QPushButton;
 class GenerateWorker;
 class QTreeWidgetItem;
+class QSpinBox;
+class QDoubleSpinBox;
+class QGroupBox;
+class PromptPanel;
 
 class MainWindow : public QMainWindow
 {
@@ -21,26 +26,42 @@ public:
 signals:
 	// этот сигнал посылаем сами себе из обработчика кнопки
 	void enqueueTask(const GenerationTask &task);
+
+protected:
+	void closeEvent(QCloseEvent *e) override;
+
 private slots:
-	void onTreeItemDoubleClicked(QTreeWidgetItem *item, int column);
+
 	void onGenerateClicked();
 	void onQueueEmpty();
 
 private:
-	void buildTree();
-	QTreeWidgetItem* addTreeItem(QTreeWidgetItem* root, const QString &name, const QString &value);
-	QString composePrompt(QTreeWidgetItem *root) const;
-	GenerationParams composeParams() const;
+	void setupCentralLayout();
+	QGroupBox *buildParamsGroup();
+	
+	void initWidgetsFromDefaults();
+	void collectDefaultsFromWidgets();
+	void readParamsInto(GenerationParams &p) const;  // снять значения с виджетов
 
-	QTreeWidget *m_tree;
-	QPlainTextEdit *m_promptView;
+	Settings m_settings;
+
+	PromptPanel *m_posPanel = nullptr;
+	PromptPanel *m_negPanel = nullptr;
+
 	QListWidget *m_queueView;
 	QPushButton *m_generateBtn;
+	QPushButton *m_stopBtn;
+	QPushButton *m_abortBtn;
 
 	QThread m_workerThread;
 	GenerateWorker *m_worker;
 
-	QTreeWidgetItem *m_itemPos;
-	QTreeWidgetItem *m_itemNeg;
-	QTreeWidgetItem *m_itemCfg;
+	QSpinBox *m_repeatSpin = nullptr;
+	QSpinBox *m_baseSeedSpin = nullptr;
+	QSpinBox *m_deltaSpin = nullptr;
+	QSpinBox *m_widthSpin = nullptr;
+	QSpinBox *m_heightSpin = nullptr;
+	QSpinBox *m_stepsSpin = nullptr;
+	QDoubleSpinBox *m_cfgSpin = nullptr;
+
 };

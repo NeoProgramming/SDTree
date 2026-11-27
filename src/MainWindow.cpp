@@ -12,6 +12,14 @@
 #include <QMessageBox>
 #include <QLabel>
 #include <QUuid>
+#include <QGroupBox>
+#include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <climits>
+
+#include "PromptPanel.h"
 
 MainWindow::MainWindow(QWidget *parent)
 	: QMainWindow(parent)
@@ -19,45 +27,20 @@ MainWindow::MainWindow(QWidget *parent)
 	// регистрация типа для передачи
 	qRegisterMetaType<GenerationTask>("GenerationTask");
 
-	// ---- компоновка ----
-	auto *central = new QWidget(this);
-	auto *mainLayout = new QHBoxLayout(central);
+	m_settings.loadSettings();
 
-	auto *leftSplitter = new QSplitter(Qt::Vertical, this);
-	m_tree = new QTreeWidget(this);
-	m_tree->setHeaderLabel("Project");
-	m_promptView = new QPlainTextEdit(this);
-	m_promptView->setReadOnly(true);
-	m_promptView->setPlaceholderText("The final prompt will appear here...");
-
-	leftSplitter->addWidget(m_tree);
-	leftSplitter->addWidget(m_promptView);
-	leftSplitter->setStretchFactor(0, 1);
-	leftSplitter->setStretchFactor(1, 1);
-
-	auto *rightWidget = new QWidget(this);
-	auto *rightLayout = new QVBoxLayout(rightWidget);
-	rightLayout->addWidget(new QLabel("Task queue / log"));
-	m_queueView = new QListWidget(this);
-	m_generateBtn = new QPushButton("Add to Generate Queue", this);
-	rightLayout->addWidget(m_queueView);
-	rightLayout->addWidget(m_generateBtn);
-
-	mainLayout->addWidget(leftSplitter, 3);
-	mainLayout->addWidget(rightWidget, 1);
-
-	setCentralWidget(central);
-	setWindowTitle("SD GUI - MVP");
+	setupCentralLayout();
+	
+	setWindowTitle("SD GUI");
 	resize(1100, 700);
 
+	initWidgetsFromDefaults();
 	
 
 	// ---- воркер в отдельном потоке ----
-	m_worker = new GenerateWorker; // без parent, переедет в поток
+	m_worker = new GenerateWorker({ m_settings.serverUrl, m_settings.outPath }); // без parent, переедет в поток
 	m_worker->moveToThread(&m_workerThread);
-
-	// ---- дерево - после воркера т.к. там читаются настройки
-	buildTree();
+		
 	
 	connect(&m_workerThread, &QThread::finished,
 		m_worker, &QObject::deleteLater);
@@ -86,13 +69,8 @@ MainWindow::MainWindow(QWidget *parent)
 	connect(m_worker, &GenerateWorker::queueEmpty, 
 		this, &MainWindow::onQueueEmpty);
 	
-		
 	m_workerThread.start();
 
-
-	// ---- сигналы GUI ----
-	connect(m_tree, &QTreeWidget::itemDoubleClicked,
-		this, &MainWindow::onTreeItemDoubleClicked);
 	connect(m_generateBtn, &QPushButton::clicked,
 		this, &MainWindow::onGenerateClicked);
 }
@@ -103,134 +81,99 @@ MainWindow::~MainWindow()
 	m_workerThread.wait();
 }
 
-QTreeWidgetItem* MainWindow::addTreeItem(QTreeWidgetItem* root, const QString &name, const QString &value)
+void MainWindow::readParamsInto(GenerationParams &p) const
 {
-	QTreeWidgetItem *fragment;
-	if(root)
-		fragment = new QTreeWidgetItem(root, { name });
-	else
-		fragment = new QTreeWidgetItem(m_tree, { name });
-	fragment->setFlags(fragment->flags() | Qt::ItemIsUserCheckable);
-	fragment->setCheckState(0, Qt::Checked);
-	fragment->setData(0, Qt::UserRole, name);
-
-	// значение самого фрагмента храним в отдельной роли, чтобы не путать с подписью
-	fragment->setData(0, Qt::UserRole + 1, value);
-
-	if (!root) {
-		fragment->setExpanded(true);
-		m_tree->addTopLevelItem(fragment);
-	}
-
-	return fragment;
+	p.repeatCount = m_repeatSpin->value();
+	p.baseSeed = m_baseSeedSpin->value();
+	p.seedDelta = m_deltaSpin->value();
+	p.width = m_widthSpin->value();
+	p.height = m_heightSpin->value();
+	p.steps = m_stepsSpin->value();
+	p.cfgScale = m_cfgSpin->value();
 }
 
-void MainWindow::buildTree()
+QGroupBox *MainWindow::buildParamsGroup()
 {
-	m_tree->clear();
+	auto *box = new QGroupBox("Generation parameters", this);
+	auto *grid = new QGridLayout(box);
 
-	m_itemPos = addTreeItem(nullptr, "Positive Prompt", "a beautiful landscape, mountains, lake, sunset");
-	m_itemNeg = addTreeItem(nullptr, "Negative Prompt", "blurry, low quality, text, watermark");
-	m_itemCfg = addTreeItem(nullptr, "Configuation", "cfg");
-	
-	addTreeItem(m_itemCfg, "repeatCount", QString::number(m_worker->cfg.repeatCount));
-	addTreeItem(m_itemCfg, "baseSeed", QString::number(m_worker->cfg.baseSeed));
-	addTreeItem(m_itemCfg, "seedDelta", QString::number(m_worker->cfg.seedDelta));
+	// --- repeatCount ---
+	grid->addWidget(new QLabel("Repeats:"), 0, 0);
+	m_repeatSpin = new QSpinBox(box);
+	m_repeatSpin->setRange(1, 999);
+	m_repeatSpin->setToolTip("How many images should be generated with this prompt?");
+	grid->addWidget(m_repeatSpin, 0, 1);
 
-	addTreeItem(m_itemCfg, "width", QString::number(m_worker->cfg.width));
-	addTreeItem(m_itemCfg, "height", QString::number(m_worker->cfg.height));
-	addTreeItem(m_itemCfg, "steps", QString::number(m_worker->cfg.steps));
-	addTreeItem(m_itemCfg, "cfgScale", QString::number(m_worker->cfg.cfgScale));
-}
+	// --- baseSeed ---
+	grid->addWidget(new QLabel("Seed (-1 = random):"), 1, 0);
+	m_baseSeedSpin = new QSpinBox(box);
+	m_baseSeedSpin->setRange(-1, INT_MAX);
+	m_baseSeedSpin->setToolTip("-1: random seed for each image");
+	grid->addWidget(m_baseSeedSpin, 1, 1);
 
-GenerationParams MainWindow::composeParams() const
-{
-	GenerationParams params;
+	// --- seedDelta ---
+	grid->addWidget(new QLabel("Seed step:"), 2, 0);
+	m_deltaSpin = new QSpinBox(box);
+	m_deltaSpin->setRange(-1000000, 1000000);
+	m_deltaSpin->setToolTip("0: same seed; 1: +1 for each image");
+	grid->addWidget(m_deltaSpin, 2, 1);
 
-	// Обход дерева:
-	std::function<void(QTreeWidgetItem *)> walk = [&](QTreeWidgetItem *item) {
-		const QVariant name = item->data(0, Qt::UserRole);
-		const QVariant value = item->data(0, Qt::UserRole+1);
-		if (name == "repeatCount")
-			params.repeatCount = value.toInt();
-		else if (name == "baseSeed")
-			params.baseSeed = value.toInt();
-		else if(name == "seedDelta")
-			params.seedDelta = value.toInt();
-		// дочерние элементы
-		for (int i = 0; i < item->childCount(); ++i)
-			walk(item->child(i));
-	};
+	// --- width / height ---
+	grid->addWidget(new QLabel("Width:"), 3, 0);
+	m_widthSpin = new QSpinBox(box);
+	m_widthSpin->setRange(64, 4096);
+	m_widthSpin->setSingleStep(8);
+	grid->addWidget(m_widthSpin, 3, 1);
 
-	// неверно, нужно просто начинать от фиксированного элемента Settings
-	for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
-		walk(m_tree->topLevelItem(i));
-	return params;
-}
+	grid->addWidget(new QLabel("Height:"), 4, 0);
+	m_heightSpin = new QSpinBox(box);
+	m_heightSpin->setRange(64, 4096);
+	m_heightSpin->setSingleStep(8);
+	grid->addWidget(m_heightSpin, 4, 1);
 
-QString MainWindow::composePrompt(QTreeWidgetItem *root) const
-{
-	QStringList parts;
-	// Обход дерева: собираем только включённые листовые узлы-фрагменты
-	std::function<void(QTreeWidgetItem *)> walk = [&](QTreeWidgetItem *item) {
-		if (item->checkState(0) != Qt::Checked)
-			return;
-		const QVariant name = item->data(0, Qt::UserRole);
-		const QVariant text = item->data(0, Qt::UserRole + 1);
-		if (text.isValid() && !text.toString().isEmpty()) {
-			parts << text.toString();
-		}
-		// дочерние элементы
-		for (int i = 0; i < item->childCount(); ++i)
-			walk(item->child(i));
-	};
+	// --- steps ---
+	grid->addWidget(new QLabel("Steps:"), 5, 0);
+	m_stepsSpin = new QSpinBox(box);
+	m_stepsSpin->setRange(1, 150);
+	grid->addWidget(m_stepsSpin, 5, 1);
 
-	// неверно, нужно просто начинать от фиксированного элемента Prompts
-//	for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
-//		walk(m_tree->topLevelItem(i));
-	walk(root);
-	return parts.join(", ");
-}
+	// --- cfgScale ---
+	grid->addWidget(new QLabel("CFG scale:"), 6, 0);
+	m_cfgSpin = new QDoubleSpinBox(box);
+	m_cfgSpin->setRange(1.0, 30.0);
+	m_cfgSpin->setDecimals(1);
+	m_cfgSpin->setSingleStep(0.5);
+	grid->addWidget(m_cfgSpin, 6, 1);
 
-void MainWindow::onTreeItemDoubleClicked(QTreeWidgetItem *item, int)
-{
-	if (!item) return;
-
-	// Показываем актуальный собранный промпт при любом клике
-	m_promptView->setPlainText(composePrompt(item));
-
-	// Редактирование только для фрагментов с текстом
-	const QVariant text = item->data(0, Qt::UserRole + 1);
-	if (!text.isValid())
-		return;
-
-	bool ok = false;
-	const QString newText = QInputDialog::getMultiLineText(
-		this,
-		"Edit fragment",
-		item->text(0),
-		text.toString(),
-		&ok,
-		Qt::WindowFlags(),
-		Qt::ImhMultiLine);
-
-	if (ok) {
-		item->setData(0, Qt::UserRole + 1, newText);
-		m_promptView->setPlainText(composePrompt(item));
-	}
+	grid->setColumnStretch(1, 1);
+	return box;
 }
 
 void MainWindow::onGenerateClicked()
 {
 	GenerationTask task;
-	task.posPrompt = composePrompt(m_itemPos);
+	
+	task.posPrompt = m_posPanel->composeText().trimmed();
 	if (task.posPrompt.trimmed().isEmpty()) {
 		QMessageBox::warning(this, "Empty prompt",
 			"Include at least one segment containing text.");
 		return;
 	}
-	task.negPrompt = composePrompt(m_itemNeg);
-	task.params = composeParams();
+	task.negPrompt = m_negPanel->composeText().trimmed();
+	
+	readParamsInto(task.params);   // снимок с виджетов — в задачу
+	if (task.params.width % 8 != 0 || task.params.height % 8 != 0) {
+		QMessageBox::warning(this, "Params",
+			"width and height must be multiples of 8");
+		return;
+	}
+	if (task.params.baseSeed < -1) {
+		// -1 = random, меньше — бессмысленно
+		QMessageBox::warning(this, "Params",
+			"baseSeed must be greater than -1");
+		return;
+	}
+
 	task.taskId = QUuid::createUuid().toString(QUuid::WithoutBraces);	
 	
 	m_queueView->addItem(QString("Time [%1] %2  (repeat=%3, seed=%4, delta=%5)")
@@ -256,4 +199,83 @@ void MainWindow::onQueueEmpty()
 //		m_queueView->addItem("Error: " + error);
 //		QMessageBox::warning(this, "Generation error", error);
 //	}
+}
+
+void MainWindow::initWidgetsFromDefaults()
+{
+	m_repeatSpin->setValue(m_settings.repeatCount);
+	m_baseSeedSpin->setValue(static_cast<int>(m_settings.baseSeed));
+	m_deltaSpin->setValue(static_cast<int>(m_settings.seedDelta));
+	m_widthSpin->setValue(m_settings.width);
+	m_heightSpin->setValue(m_settings.height);
+	m_stepsSpin->setValue(m_settings.steps);
+	m_cfgSpin->setValue(m_settings.cfgScale);
+}
+
+void MainWindow::collectDefaultsFromWidgets()
+{
+	m_settings.repeatCount = m_repeatSpin->value();
+	m_settings.baseSeed = m_baseSeedSpin->value();
+	m_settings.seedDelta = m_deltaSpin->value();
+	m_settings.width = m_widthSpin->value();
+	m_settings.height = m_heightSpin->value();
+	m_settings.steps = m_stepsSpin->value();
+	m_settings.cfgScale = m_cfgSpin->value();
+}
+
+void MainWindow::closeEvent(QCloseEvent *e)
+{
+	m_workerThread.quit();
+	m_workerThread.wait();
+
+	// копируем значения виджетов обратно в cfg (воркер уже не работает
+	// по задачам, но чтобы не было гонки — делаем после остановки потока)
+
+	collectDefaultsFromWidgets();
+	m_settings.saveSettings();
+
+	QMainWindow::closeEvent(e);
+}
+
+void MainWindow::setupCentralLayout()
+{
+	// --- left column: two PromptPanels stacked (positive on top, negative below) ---
+	m_posPanel = new PromptPanel("Positive prompt", this);
+	m_negPanel = new PromptPanel("Negative prompt", this);
+
+	auto *leftSplitter = new QSplitter(Qt::Vertical, this);
+	leftSplitter->addWidget(m_posPanel);
+	leftSplitter->addWidget(m_negPanel);
+	leftSplitter->setStretchFactor(0, 2);   // positive: 2/3 height
+	leftSplitter->setStretchFactor(1, 1);   // negative: 1/3 height
+	leftSplitter->setSizes({ 400, 200 });
+
+	// --- right column: settings + buttons + queue/log ---
+	auto *rightWidget = new QWidget(this);
+	auto *rightLayout = new QVBoxLayout(rightWidget);
+
+	rightLayout->addWidget(buildParamsGroup());          // settings group
+
+	m_generateBtn = new QPushButton("Generate", rightWidget);
+	m_stopBtn = new QPushButton("Stop", rightWidget);
+	m_abortBtn = new QPushButton("Abort", rightWidget);
+	auto *btnRow = new QHBoxLayout();
+	btnRow->addWidget(m_generateBtn);
+	btnRow->addWidget(m_stopBtn);
+	btnRow->addWidget(m_abortBtn);
+	rightLayout->addLayout(btnRow);
+
+	rightLayout->addWidget(new QLabel("Queue / Log", rightWidget));
+	m_queueView = new QListWidget(rightWidget);
+	rightLayout->addWidget(m_queueView, 1);              // take remaining space
+
+	// --- main horizontal splitter: left ~2/3, right ~1/3 ---
+	auto *mainSplitter = new QSplitter(Qt::Horizontal, this);
+	mainSplitter->addWidget(leftSplitter);
+	mainSplitter->addWidget(rightWidget);
+	mainSplitter->setStretchFactor(0, 2);   // left 2/3 width
+	mainSplitter->setStretchFactor(1, 1);   // right 1/3 width
+	mainSplitter->setSizes({ 700, 350 });
+
+	setCentralWidget(mainSplitter);
 }
