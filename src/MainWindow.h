@@ -15,6 +15,8 @@ class QSpinBox;
 class QDoubleSpinBox;
 class QGroupBox;
 class PromptPanel;
+class MaskEditorDialog;
+class QLineEdit;
 
 class MainWindow : public QMainWindow
 {
@@ -34,10 +36,14 @@ private slots:
 
 	void onGenerateClicked();
 	void onQueueEmpty();
-
+	void openMaskEditor();
 private:
+	bool fileReadable(const QString &path) const;
+	bool validateParams(const GenerationParams &p, QString *errorOut) const;
 	void setupCentralLayout();
+	
 	QGroupBox *buildParamsGroup();
+	QGroupBox *buildImg2ImgGroup();
 	
 	void initWidgetsFromDefaults();
 	void collectDefaultsFromWidgets();
@@ -48,6 +54,8 @@ private:
 	PromptPanel *m_posPanel = nullptr;
 	PromptPanel *m_negPanel = nullptr;
 
+	MaskEditorDialog *m_maskDialog = nullptr;
+
 	QListWidget *m_queueView;
 	QPushButton *m_generateBtn;
 	QPushButton *m_stopBtn;
@@ -56,6 +64,7 @@ private:
 	QThread m_workerThread;
 	GenerateWorker *m_worker;
 
+	// main params
 	QSpinBox *m_repeatSpin = nullptr;
 	QSpinBox *m_baseSeedSpin = nullptr;
 	QSpinBox *m_deltaSpin = nullptr;
@@ -64,4 +73,11 @@ private:
 	QSpinBox *m_stepsSpin = nullptr;
 	QDoubleSpinBox *m_cfgSpin = nullptr;
 
+	// img2img params
+	QLineEdit      *m_initEdit = nullptr;
+	QPushButton    *m_initBrowseBtn = nullptr;
+	QLineEdit      *m_maskEdit = nullptr;
+	QPushButton    *m_maskBrowseBtn = nullptr;
+	QDoubleSpinBox *m_strengthSpin = nullptr;
+	QPushButton    *m_editMaskBtn = nullptr;
 };

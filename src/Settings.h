@@ -10,8 +10,10 @@
 	X(steps,		int,	 20)\
 	X(cfgScale,		double,  3.5)\
 	X(outPath,		QString, "./output")\
-	X(serverUrl,    QString, "http://127.0.0.1:1234/sdapi/v1/txt2img")
-
+	X(serverBase,   QString, "http://127.0.0.1:1234")\
+	X(initImagePath,QString, "")\
+	X(maskImagePath,QString, "")\
+	X(strength,		double,  0.5)
 struct Settings
 {
 	void loadSettings();

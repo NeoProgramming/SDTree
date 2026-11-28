@@ -4,7 +4,7 @@
 #include <QJsonArray>
 #include <QBuffer>
 #include <QTimer>
-
+#include <QTextStream>
 
 GenerateWorker::GenerateWorker(const WorkerConfig &cfg, QObject *parent)
     : QObject(parent)
@@ -23,33 +23,27 @@ GenerateWorker::~GenerateWorker()
 
 QString GenerateWorker::makeBaseName() const
 {
-	// напр. "output/20260101_120000_123"
-	const QString base = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-	QString path = QDir(m_cfg.outPath).filePath(base);
-	return path;
+	const QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+	QString base = QDir(m_cfg.outPath).filePath(stamp);
+
+	// Защита от затирания: если base уже занят sdp или .0.png,
+	// добавляем суффикс _1, _2, ...
+	int counter = 1;
+	const QString original = base;
+	while (QFile::exists(base + ".sdp") || QFile::exists(base + ".0.png")) {
+		base = QString("%1_%2").arg(original).arg(counter++);
+	}
+	return base;
 }
 
 QString GenerateWorker::makeOutputPath(int index) const
 {
-    // Простая защита от затирания: имя с временной меткой и счётчиком
-	// outputBase + "." + QString::number(index + 1) + ".png"
-
-	const QString base = makeBaseName(); 
-	QString path;
-    int counter = 1;
+	// m_running.outputBase — уже зафиксирован в processNext(),
+	// здесь только добавляем номер в серии
 	if (index < 0) {
-		path = base + ".png";
-		while (QFile::exists(path)) {
-			path = QString("%1_%2.png").arg(base).arg(counter++);
-		}
+		return m_running.outputBase + ".png";
 	}
-	else {
-		path = base + QString(".%1.png").arg(index);
-		while (QFile::exists(path)) {
-			path = QString("%1_%2.%d.png").arg(base).arg(counter++).arg(index);
-		}
-	}
-    return path;
+	return QString("%1.%2.png").arg(m_running.outputBase).arg(index);
 }
 
 
@@ -82,6 +76,14 @@ void GenerateWorker::processNext()
 	startNextRequest();
 }
 
+QString GenerateWorker::fileToBase64(const QString &path) const
+{
+	QFile f(path);
+	if (!f.open(QIODevice::ReadOnly))
+		return QString();
+	return QString::fromLatin1(f.readAll().toBase64());
+}
+
 void GenerateWorker::startNextRequest() 
 {
 	if (m_running.currentIndex >= m_running.task.params.repeatCount) {
@@ -91,6 +93,8 @@ void GenerateWorker::startNextRequest()
 		processNext();
 		return;
 	}
+
+	const bool useImg2Img = !m_running.task.params.initImagePath.isEmpty();
 
 	// вычисляем сид
 	m_running.currentSeed = computeSeedForIndex(m_running.currentIndex);
@@ -105,7 +109,35 @@ void GenerateWorker::startNextRequest()
 	body["seed"] = m_running.currentSeed;
 	body["batch_size"] = 1;
 
-	QNetworkRequest req{ QUrl(m_cfg.serverUrl) };
+	QString endpoint = m_cfg.serverBase;
+
+	if (useImg2Img) {
+		endpoint += "/sdapi/v1/img2img"; 
+
+		const QString initB64 = fileToBase64(m_running.task.params.initImagePath);
+		if (initB64.isEmpty()) {
+			// ошибка: не удалось прочитать файл
+			emit taskFinished(m_running.task.taskId, false,
+				"Cannot read init image: " + m_running.task.params.initImagePath);
+			m_hasRunning = false;
+			processNext();
+			return;
+		}
+		body["init_images"] = QJsonArray{ initB64 };
+		body["denoising_strength"] = m_running.task.params.strength;
+
+		if (!m_running.task.params.maskImagePath.isEmpty()) {
+			const QString maskB64 = fileToBase64(m_running.task.params.maskImagePath);
+			if (!maskB64.isEmpty())
+				body["mask"] = maskB64;
+			// если маска не читается — молча идём без неё, или логируем предупреждение
+		}
+	}
+	else {
+		endpoint += "/sdapi/v1/txt2img";
+	}
+
+	QNetworkRequest req{ QUrl(endpoint) };
 	req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
 	// отправляет на сервер запрос
@@ -158,6 +190,11 @@ void GenerateWorker::handleReply(QNetworkReply *reply)
 		}
 	}
 
+	// после успешного f.write(...) и f.close():
+	if (m_running.currentIndex == 0) {
+		saveSdp(m_running.outputBase);
+	}
+
 	// 
 	const QString path = makeOutputPath(m_running.task.params.repeatCount > 1 ? m_running.currentIndex : -1);
 	QFile f(path);
@@ -169,6 +206,8 @@ void GenerateWorker::handleReply(QNetworkReply *reply)
 		return;
 	}
 	f.close();
+
+	
 
 	emit imageSaved(m_running.task.taskId, path, usedSeed);
 
@@ -195,6 +234,29 @@ void GenerateWorker::abortNow()
 	m_queue.clear();
 }
 
+void GenerateWorker::saveSdp(const QString &basePath) const
+{
+	QFile f(basePath + ".sdp");
+	if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+		return;
+	const auto &p = m_running.task.params;
+	QTextStream out(&f);
+	out << "positive: " << m_running.task.posPrompt << "\n";
+	out << "negative: " << m_running.task.negPrompt << "\n";
+	out << "width: " << p.width << "\n";
+	out << "height: " << p.height << "\n";
+	out << "steps: " << p.steps << "\n";
+	out << "cfgScale: " << p.cfgScale << "\n";
+	out << "repeatCount: " << p.repeatCount << "\n";
+	out << "baseSeed: " << p.baseSeed << "\n";
+	out << "seedDelta: " << p.seedDelta << "\n";
+	out << "mode: " << (p.initImagePath.isEmpty() ? "txt2img" : "img2img") << "\n";
+	if (!p.initImagePath.isEmpty()) {
+		out << "initImage: " << p.initImagePath << "\n";
+		out << "maskImage: " << p.maskImagePath << "\n";
+		out << "strength: " << p.strength << "\n";
+	}
+}
 
 
 

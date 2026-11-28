@@ -46,12 +46,24 @@
     <ClCompile Include="src\PromptPanel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\maskcanvas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\maskededitordialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="src\generateworker.h">
       <Filter>Header Files</Filter>
     </QtMoc>
     <QtMoc Include="src\PromptPanel.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="src\maskcanvas.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="src\maskededitordialog.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>

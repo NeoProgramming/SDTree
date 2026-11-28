@@ -17,9 +17,12 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGridLayout>
+#include <QLineEdit>
+#include <QFileDialog>
 #include <climits>
 
 #include "PromptPanel.h"
+#include "maskededitordialog.h"
 
 MainWindow::MainWindow(QWidget *parent)
 	: QMainWindow(parent)
@@ -38,7 +41,7 @@ MainWindow::MainWindow(QWidget *parent)
 	
 
 	// ---- воркер в отдельном потоке ----
-	m_worker = new GenerateWorker({ m_settings.serverUrl, m_settings.outPath }); // без parent, переедет в поток
+	m_worker = new GenerateWorker({ m_settings.serverBase, m_settings.outPath }); // без parent, переедет в поток
 	m_worker->moveToThread(&m_workerThread);
 		
 	
@@ -90,6 +93,10 @@ void MainWindow::readParamsInto(GenerationParams &p) const
 	p.height = m_heightSpin->value();
 	p.steps = m_stepsSpin->value();
 	p.cfgScale = m_cfgSpin->value();
+
+	p.initImagePath = m_initEdit->text().trimmed();
+	p.maskImagePath = m_maskEdit->text().trimmed();
+	p.strength = m_strengthSpin->value();
 }
 
 QGroupBox *MainWindow::buildParamsGroup()
@@ -149,6 +156,131 @@ QGroupBox *MainWindow::buildParamsGroup()
 	return box;
 }
 
+QGroupBox *MainWindow::buildImg2ImgGroup()
+{
+	auto *box = new QGroupBox("Image to image (optional)", this);
+	auto *grid = new QGridLayout(box);
+
+	// --- init image ---
+	grid->addWidget(new QLabel("Init image:"), 0, 0);
+	m_initEdit = new QLineEdit(box);
+	m_initEdit->setPlaceholderText("(empty = txt2img)");
+	m_initEdit->setToolTip("Reference image for img2img. Leave empty to use txt2img.");
+	grid->addWidget(m_initEdit, 0, 1);
+
+	m_initBrowseBtn = new QPushButton("...", box);
+	m_initBrowseBtn->setFixedWidth(30);
+	grid->addWidget(m_initBrowseBtn, 0, 2);
+
+	// --- mask image ---
+	grid->addWidget(new QLabel("Mask:"), 1, 0);
+	m_maskEdit = new QLineEdit(box);
+	m_maskEdit->setPlaceholderText("(optional, img2img only)");
+	m_maskEdit->setToolTip("Optional mask for img2img. White areas are regenerated.");
+	grid->addWidget(m_maskEdit, 1, 1);
+
+	m_maskBrowseBtn = new QPushButton("...", box);
+	m_maskBrowseBtn->setFixedWidth(30);
+	grid->addWidget(m_maskBrowseBtn, 1, 2);
+
+	// после m_maskBrowseBtn:
+	m_editMaskBtn = new QPushButton("Edit", box);
+	m_editMaskBtn->setFixedWidth(45);
+	grid->addWidget(m_editMaskBtn, 1, 3);
+
+	// --- strength ---
+	grid->addWidget(new QLabel("Strength:"), 2, 0);
+	m_strengthSpin = new QDoubleSpinBox(box);
+	m_strengthSpin->setRange(0.0, 1.0);
+	m_strengthSpin->setSingleStep(0.05);
+	m_strengthSpin->setDecimals(2);
+	m_strengthSpin->setToolTip("denoising_strength for img2img");
+	grid->addWidget(m_strengthSpin, 2, 1, 1, 2);
+
+	grid->setColumnStretch(1, 1);
+
+	// --- browse handlers ---
+	connect(m_initBrowseBtn, &QPushButton::clicked, this, [this]() {
+		const QString f = QFileDialog::getOpenFileName(
+			this, "Select init image", QString(),
+			"Images (*.png *.jpg *.jpeg *.bmp *.webp)");
+		if (!f.isEmpty())
+			m_initEdit->setText(f);
+	});
+
+	connect(m_maskBrowseBtn, &QPushButton::clicked, this, [this]() {
+		const QString f = QFileDialog::getOpenFileName(
+			this, "Select mask image", QString(),
+			"Images (*.png *.jpg *.jpeg *.bmp *.webp)");
+		if (!f.isEmpty())
+			m_maskEdit->setText(f);
+	});
+
+
+	connect(m_editMaskBtn, &QPushButton::clicked,
+		this, &MainWindow::openMaskEditor);
+
+	// --- mask edit enabled only when init set ---
+	auto updateMaskEnabled = [this]() {
+		const bool hasInit = !m_initEdit->text().trimmed().isEmpty();
+		m_maskEdit->setEnabled(hasInit);
+		m_maskBrowseBtn->setEnabled(hasInit);
+		m_strengthSpin->setEnabled(hasInit);
+		m_editMaskBtn->setEnabled(hasInit);
+	};
+	connect(m_initEdit, &QLineEdit::textChanged, this, updateMaskEnabled);
+	updateMaskEnabled();
+
+	return box;
+}
+
+bool MainWindow::fileReadable(const QString &path) const
+{
+	QFileInfo fi(path);
+	return fi.exists() && fi.isFile() && fi.isReadable();
+}
+
+bool MainWindow::validateParams(const GenerationParams &p, QString *errorOut) const
+{
+	if (p.width % 8 != 0 || p.height % 8 != 0) {
+		*errorOut = "Width and height must be multiples of 8.";
+		return false;
+	}
+	if (p.width < 64 || p.height < 64) {
+		*errorOut = "Width and height must be at least 64.";
+		return false;
+	}
+	if (p.baseSeed < -1) {
+		*errorOut = "Base seed must be -1 (random) or >= 0.";
+		return false;
+	}
+	if (p.repeatCount < 1) {
+		*errorOut = "Repeat count must be >= 1.";
+		return false;
+	}
+
+	const bool hasInit = !p.initImagePath.isEmpty();
+	const bool hasMask = !p.maskImagePath.isEmpty();
+
+	if (hasInit && !fileReadable(p.initImagePath)) {
+		*errorOut = QString("Init image is not readable: %1").arg(p.initImagePath);
+		return false;
+	}
+	if (hasMask && !hasInit) {
+		*errorOut = "Mask requires an init image (img2img mode).";
+		return false;
+	}
+	if (hasMask && !fileReadable(p.maskImagePath)) {
+		*errorOut = QString("Mask image is not readable: %1").arg(p.maskImagePath);
+		return false;
+	}
+	if (p.strength < 0.0 || p.strength > 1.0) {
+		*errorOut = "Strength must be in [0, 1].";
+		return false;
+	}
+	return true;
+}
+
 void MainWindow::onGenerateClicked()
 {
 	GenerationTask task;
@@ -162,18 +294,13 @@ void MainWindow::onGenerateClicked()
 	task.negPrompt = m_negPanel->composeText().trimmed();
 	
 	readParamsInto(task.params);   // снимок с виджетов — в задачу
-	if (task.params.width % 8 != 0 || task.params.height % 8 != 0) {
-		QMessageBox::warning(this, "Params",
-			"width and height must be multiples of 8");
-		return;
-	}
-	if (task.params.baseSeed < -1) {
-		// -1 = random, меньше — бессмысленно
-		QMessageBox::warning(this, "Params",
-			"baseSeed must be greater than -1");
-		return;
-	}
 
+	QString err;
+	if (!validateParams(task.params, &err)) {
+		QMessageBox::warning(this, "Invalid parameters", err);
+		return;
+	}
+	
 	task.taskId = QUuid::createUuid().toString(QUuid::WithoutBraces);	
 	
 	m_queueView->addItem(QString("Time [%1] %2  (repeat=%3, seed=%4, delta=%5)")
@@ -210,6 +337,10 @@ void MainWindow::initWidgetsFromDefaults()
 	m_heightSpin->setValue(m_settings.height);
 	m_stepsSpin->setValue(m_settings.steps);
 	m_cfgSpin->setValue(m_settings.cfgScale);
+
+	m_initEdit->setText(m_settings.initImagePath);
+	m_maskEdit->setText(m_settings.maskImagePath);
+	m_strengthSpin->setValue(m_settings.strength);
 }
 
 void MainWindow::collectDefaultsFromWidgets()
@@ -255,6 +386,7 @@ void MainWindow::setupCentralLayout()
 	auto *rightLayout = new QVBoxLayout(rightWidget);
 
 	rightLayout->addWidget(buildParamsGroup());          // settings group
+	rightLayout->addWidget(buildImg2ImgGroup());
 
 	m_generateBtn = new QPushButton("Generate", rightWidget);
 	m_stopBtn = new QPushButton("Stop", rightWidget);
@@ -278,4 +410,49 @@ void MainWindow::setupCentralLayout()
 	mainSplitter->setSizes({ 700, 350 });
 
 	setCentralWidget(mainSplitter);
+}
+
+void MainWindow::openMaskEditor()
+{
+	const QString refPath = m_initEdit->text().trimmed();
+	if (refPath.isEmpty()) {
+		QMessageBox::warning(this, "No reference image",
+			"Set init image before editing mask.");
+		return;
+	}
+
+	QImage ref(refPath);
+	if (ref.isNull()) {
+		QMessageBox::warning(this, "Cannot load image",
+			QString("Failed to load: %1").arg(refPath));
+		return;
+	}
+
+	QImage existingMask;
+	const QString maskPath = m_maskEdit->text().trimmed();
+	if (!maskPath.isEmpty())
+		existingMask = QImage(maskPath);
+
+	if (!m_maskDialog) {
+		m_maskDialog = new MaskEditorDialog(this);
+		connect(m_maskDialog, &MaskEditorDialog::maskSaved,
+			this, [this](const QImage &mask) {
+			const QString path = QFileDialog::getSaveFileName(
+				this, "Save mask", QString(),
+				"PNG image (*.png)");
+			if (path.isEmpty())
+				return;
+			if (!mask.save(path, "PNG")) {
+				QMessageBox::warning(this, "Save failed",
+					QString("Cannot save mask to: %1").arg(path));
+				return;
+			}
+			m_maskEdit->setText(path);
+		});
+	}
+
+	m_maskDialog->loadImages(ref, existingMask);
+	m_maskDialog->show();
+	m_maskDialog->raise();
+	m_maskDialog->activateWindow();
 }

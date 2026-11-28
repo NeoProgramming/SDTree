@@ -48,9 +48,12 @@ private:
 	QNetworkReply *m_currentReply = nullptr;
     QNetworkAccessManager *m_nam;
    
+	void saveSdp(const QString &basePath) const;
 	void startNextRequest();
 	void handleReply(QNetworkReply *reply);
-	QString makeBaseName() const;
+	QString makeBaseName() const;	
     QString makeOutputPath(int index) const;
 	qint64 computeSeedForIndex(int index) const;
+
+	QString fileToBase64(const QString &path) const;
 };

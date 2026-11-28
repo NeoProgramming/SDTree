@@ -84,6 +84,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\generateworker.cpp" />
+    <ClCompile Include="src\maskcanvas.cpp" />
+    <ClCompile Include="src\maskededitordialog.cpp" />
     <ClCompile Include="src\PromptPanel.cpp" />
     <ClCompile Include="src\Settings.cpp" />
     <QtRcc Include="MainWindow.qrc" />
@@ -97,6 +99,8 @@
   <ItemGroup>
     <ClInclude Include="src\generation.h" />
     <QtMoc Include="src\PromptPanel.h" />
+    <QtMoc Include="src\maskcanvas.h" />
+    <QtMoc Include="src\maskededitordialog.h" />
     <ClInclude Include="src\Settings.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
