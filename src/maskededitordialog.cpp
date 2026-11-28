@@ -12,6 +12,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QButtonGroup>
+#include <QShortcut>
 
 MaskEditorDialog::MaskEditorDialog(QWidget *parent)
     : QDialog(parent)
@@ -95,27 +96,51 @@ void MaskEditorDialog::buildUi()
     root->addLayout(bottom);
 
     // --- connections ---
-    connect(saveBtn, &QPushButton::clicked, this, &MaskEditorDialog::onSaveClicked);
-    connect(cancelBtn, &QPushButton::clicked, this, &MaskEditorDialog::reject);
-    connect(m_innerSpin, QOverload<int>::of(&QSpinBox::valueChanged),
-            this, &MaskEditorDialog::onInnerRadiusChanged);
-    connect(m_outerSpin, QOverload<int>::of(&QSpinBox::valueChanged),
-            this, &MaskEditorDialog::onOuterRadiusChanged);
-    connect(m_opacitySlider, &QSlider::valueChanged,
-            this, &MaskEditorDialog::onOpacityChanged);
-    connect(m_whiteRadio, &QRadioButton::toggled,
-            this, &MaskEditorDialog::onColorChanged);
-    connect(m_blackRadio, &QRadioButton::toggled,
-            this, &MaskEditorDialog::onColorChanged);
+    connect(saveBtn, &QPushButton::clicked, 
+		this, &MaskEditorDialog::onSaveClicked);
+    connect(cancelBtn, &QPushButton::clicked, 
+		this, &MaskEditorDialog::reject);
+
+	// --- connect widgets to canvas ---
+	connect(m_innerSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+		this, [this](int v) {
+		if (v >= m_outerSpin->value())
+			m_outerSpin->setValue(v + 1);
+		m_canvas->setBrushRadius(m_innerSpin->value(), m_outerSpin->value());
+	});
+	connect(m_outerSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+		this, [this](int v) {
+		if (v <= m_innerSpin->value())
+			m_innerSpin->setValue(qMax(0, v - 1));
+		m_canvas->setBrushRadius(m_innerSpin->value(), m_outerSpin->value());
+	});
+	connect(m_whiteRadio, &QRadioButton::toggled,
+		this, [this](bool checked) {
+		if (checked)
+			m_canvas->setEraser(false);
+	});
+	connect(m_blackRadio, &QRadioButton::toggled,
+		this, [this](bool checked) {
+		if (checked)
+			m_canvas->setEraser(true);
+	});
+	connect(m_opacitySlider, &QSlider::valueChanged,
+		this, [this](int v) {
+		updateOpacityLabel();
+		m_canvas->setOpacity(v / 100.0);
+	});
 }
 
 void MaskEditorDialog::loadImages(const QImage &reference, const QImage &mask)
 {
     m_reference = reference;
 
-    if (reference.isNull()) {
-        m_mask = QImage();
-    } else if (mask.isNull() || mask.size() != reference.size()) {
+	if (reference.isNull()) {
+		qWarning("MaskEditorDialog::loadImages: reference image is null");
+		return;
+	}
+    
+	if (mask.isNull() || mask.size() != reference.size()) {
         // reset mask to black
         m_mask = QImage(reference.size(), QImage::Format_Grayscale8);
         m_mask.fill(0);
@@ -123,7 +148,11 @@ void MaskEditorDialog::loadImages(const QImage &reference, const QImage &mask)
         m_mask = mask.convertToFormat(QImage::Format_Grayscale8);
     }
 
-    m_canvas->setImage(m_reference);
+    m_canvas->setBaseImage(m_reference); 
+	m_canvas->setMaskImage(m_mask);
+	m_canvas->setBrushRadius(m_innerSpin->value(), m_outerSpin->value());
+	m_canvas->setEraser(!m_whiteRadio->isChecked());
+	m_canvas->setOpacity(m_opacitySlider->value() / 100.0);
 }
 
 QImage MaskEditorDialog::mask() const
@@ -133,34 +162,10 @@ QImage MaskEditorDialog::mask() const
 
 void MaskEditorDialog::onSaveClicked()
 {
-    if (!m_mask.isNull())
-        emit maskSaved(m_mask);
+	m_mask = m_canvas->maskImage();
+	if (!m_mask.isNull())
+		emit maskSaved(m_mask);
     accept();
-}
-
-void MaskEditorDialog::onInnerRadiusChanged(int value)
-{
-    if (value >= m_outerSpin->value())
-        m_outerSpin->setValue(value + 1);
-    // painting comes in the next iteration
-}
-
-void MaskEditorDialog::onOuterRadiusChanged(int value)
-{
-    if (value <= m_innerSpin->value())
-        m_innerSpin->setValue(qMax(0, value - 1));
-    // painting comes in the next iteration
-}
-
-void MaskEditorDialog::onOpacityChanged(int value)
-{
-    updateOpacityLabel();
-    m_canvas->update();   // opacity not yet used in painting; placeholder
-}
-
-void MaskEditorDialog::onColorChanged()
-{
-    // no-op until painting is implemented
 }
 
 void MaskEditorDialog::updateOpacityLabel()

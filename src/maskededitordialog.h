@@ -28,11 +28,7 @@ signals:
 
 private slots:
     void onSaveClicked();
-    void onOuterRadiusChanged(int value);
-    void onInnerRadiusChanged(int value);
-    void onOpacityChanged(int value);
-    void onColorChanged();
-
+    
 private:
     void buildUi();
     void updateOpacityLabel();
